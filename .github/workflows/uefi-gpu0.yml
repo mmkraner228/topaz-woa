@@ -1,0 +1,65 @@
+
+name: Build Topaz GPU0 UEFI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout topaz-woa
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git build-essential mono-devel nasm lld \
+            uuid-dev gcc-aarch64-linux-gnu clang llvm \
+            gettext locales gnupg ca-certificates curl \
+            python3 python3-pip python3-venv python3-pil
+
+      - name: Clone Mu-Silicium
+        run: |
+          git clone https://github.com/Project-Silicium/Mu-Silicium.git Mu-Silicium
+          git -C Mu-Silicium checkout e5f9ec06
+          git -C Mu-Silicium submodule sync --recursive
+          git -C Mu-Silicium submodule update --init --recursive
+
+          git -C Mu-Silicium/Mu_Basecore checkout bb557081
+          git -C Mu-Silicium/Silicium-ACPI checkout 9abca7f9
+          git -C Mu-Silicium/Binaries checkout 203fb36b
+
+      - name: Prepare Python
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r Mu-Silicium/pip-requirements.txt
+
+      - name: Prepare Android boot image tools
+        run: |
+          git clone https://android.googlesource.com/platform/system/tools/mkbootimg mkbootimg_src
+          sudo mkdir -p /home/makr/work/topaz
+          sudo ln -s "$GITHUB_WORKSPACE/mkbootimg_src" /home/makr/work/topaz/mkbootimg_src
+
+      - name: Build GPU0 UEFI
+        run: |
+          source .venv/bin/activate
+          export CLANGPDB_AARCH64_PREFIX=aarch64-linux-gnu-
+          bash uefi/build_topaz_uefi.sh \
+            "$GITHUB_WORKSPACE/Mu-Silicium" \
+            "$GITHUB_WORKSPACE/Mu-topaz-v4-GPU0-RELEASE.img" \
+            RELEASE
+
+      - name: Upload UEFI image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Topaz-GPU0-UEFI
+          path: Mu-topaz-v4-GPU0-RELEASE.img
+          if-no-files-found: error
